@@ -1,8 +1,7 @@
 /*{
     "window.zoomLevel": 0,
     "files.autoSave": "off"
-} > 
-mipsel-openwrt-linux-gcc tcpTrClient.c -L./ -luci -lubox  -o tcpreport
+} > mipsel-openwrt-linux-gcc udpTrClient.c -L./ -luci -lubox  -o udpreport
  ************************************************************************/
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -22,9 +21,9 @@ mipsel-openwrt-linux-gcc tcpTrClient.c -L./ -luci -lubox  -o tcpreport
 
 #include <sys/types.h>
 #include <sys/ipc.h>
-#include "uci.h"
 
-#define SERVER_PORT 8880
+
+#define SERVER_PORT 9998
 
 #define BUFFER_SIZE 1200
 #define FILE_NAME_MAX_SIZE 512
@@ -32,8 +31,7 @@ mipsel-openwrt-linux-gcc tcpTrClient.c -L./ -luci -lubox  -o tcpreport
 #define MAXBUF 1500
 #define DEV_SIZE 6
 #define APP_VERSION 1
-#define SERVER_IP "192.168.3.176" //tz.pifii.com
-#define BYTE char
+#define SERVER_IP "192.168.2.198" //sintai
 
 typedef struct
 {
@@ -105,132 +103,158 @@ typedef struct
   int port;
 } TcpdumpData;
 
+
+void trim(char *strIn, char *strOut){
+
+    char *start, *end, *temp;//定义去除空格后字符串的头尾指针和遍历指针
+
+    temp = strIn;
+
+    while (*temp == ' '){
+        ++temp;
+    }
+
+    start = temp; //求得头指针
+
+    temp = strIn + strlen(strIn) - 1; //得到原字符串最后一个字符的指针(不是'\0')
+
+    while (*temp == ' '||*temp == '\n'){
+        --temp;
+    }
+
+    end = temp; //求得尾指针
+
+
+    for(strIn = start; strIn <= end; ){
+        *strOut++ = *strIn++;
+    }
+
+    *strOut = '\0';
+}
+
+void getValue(char * keyAndValue, char * key, char * value){
+
+    char *p = keyAndValue;
+
+    p = strstr(keyAndValue, key);
+    if(p == NULL){
+        //printf("没有key\n");
+        return ;
+    }
+
+    p += strlen(key);
+    trim(p, value);
+
+    p = strstr(value, "=");
+    if(p == NULL){
+        printf("没有=\n");
+        return;
+    }
+    p+= strlen("=");
+    trim(p, value);
+
+    p = strstr(value, "=");
+    if(p != NULL){
+        printf("多余的=\n");
+        return;
+    }
+    p = value;
+    trim(p, value);
+
+}
+int writeCFG(const char *filename/*in*/, const char *key/*in*/, const char *value/*in*/){
+    int flen=8 * 1024;
+    FILE *pf = NULL;
+    char ftemp[1024] = {0}, fline[1024] = {0}, *fp;    //文件缓存数组
+    long fsize = 0;
+    int reg = 0;
+    int exit = 0;
+    int i = 0;
+
+    pf = fopen(filename, "r+");
+    if(pf == NULL){
+        pf = fopen(filename, "w+");
+    }
+    //获得文件大小
+    fseek(pf, 0, SEEK_END); // 将文件指针指向末尾
+    fsize = ftell(pf);
+    if(fsize > flen){
+        printf("文件不能超过8k\n");
+        reg = -1;
+        goto end;
+    }
+    fseek(pf, 0, SEEK_SET); //将文件指针指向开头
+
+    //一行一行的读，如果存在key则修改value存到缓存数组中
+       while( fgets(fline, 1024, pf)!=NULL){
+printf("jiangyibo2 %s\n",fline);
+        if(strstr(fline, key) != NULL && exit == 1)
+            strcpy(fline, "");
+        if(strstr(fline, key) != NULL && exit == 0){ //判断key是否存在
+            exit = 1;
+            sprintf(fline,"%s = %s\n", key, value);
+            printf("jiangyibo1 %s",fline);
+        }
+
+        printf("fline = %s\n", fline);
+        strcat(ftemp, fline);
+
+    }
+    if(exit != 1){//如果不存在则把key value写入到最后一行
+        sprintf(fline,"%s = %s\n", key, value);
+        strcat(ftemp, fline);
+    }
+   printf("jiangyibo %s",ftemp);
+    if(pf != NULL){
+        fclose(pf);
+        pf = fopen(filename, "w+");
+         fwrite(ftemp, 1, strlen(ftemp), pf);
+/*        fp = (char *)malloc(sizeof(char) * strlen(ftemp) + 1);
+        strcpy(fp, ftemp);
+        fp[strlen(fp) - 1] = EOF;
+        fputs(fp, pf);
+        if(fp != NULL){
+            free(fp);
+            fp = NULL;
+        }
+        //fclose(pf);*/
+    }
+    end :
+        if(pf != NULL)
+            fclose(pf);
+    //重新创建一个以filename命名的文件
+    return reg;
+}
+
+void readCFG(const char *filename/*in*/, const char *key/*in*/, const char **value/*out*/){
+
+    FILE *pf = NULL;
+    char line[1024] = {0}, vtemp[1024] = {0};
+
+    pf = fopen(filename, "r"); //以只读方式打开
+    if(pf==NULL)
+    {
+      return;
+    }
+
+    while(!feof(pf)){
+        fgets(line, 1024, pf);
+        getValue(line, key, vtemp);
+        if(strlen(vtemp) != 0)
+            break;
+    }
+    if(strlen(vtemp) != 0){
+        *value = (char *)malloc(sizeof(char) * strlen(vtemp) + 1);
+        strcpy(*value, vtemp);
+    }
+    else
+        *value = NULL;
+    if(pf != NULL)
+        fclose(pf);
+}
+
+
 char device_mac[6];
-
-//以下是 Base64.h 的内容:
-
-size_t Base64_Decode(char *pDest, const char *pSrc, size_t srclen);
-size_t Base64_Encode(char *pDest, const char *pSrc, size_t srclen);
-
-//以下是 Base64.cpp 的内容:
-
-BYTE Decode_GetByte(char c);
-char Encode_GetChar(BYTE num);
-
-//===================================
-//    Base64 解码
-//===================================
-BYTE Decode_GetByte(char c)
-{
-  if (c == '+')
-    return 62;
-  else if (c == '/')
-    return 63;
-  else if (c <= '9')
-    return (BYTE)(c - '0' + 52);
-  else if (c == '=')
-    return 64;
-  else if (c <= 'Z')
-    return (BYTE)(c - 'A');
-  else if (c <= 'z')
-    return (BYTE)(c - 'a' + 26);
-  return 64;
-}
-
-//解码
-size_t Base64_Decode(char *pDest, const char *pSrc, size_t srclen)
-{
-  BYTE input[4];
-  size_t i, index = 0;
-  for (i = 0; i < srclen; i += 4)
-  {
-    //byte[0]
-    input[0] = Decode_GetByte(pSrc[i]);
-    input[1] = Decode_GetByte(pSrc[i + 1]);
-    pDest[index++] = (input[0] << 2) + (input[1] >> 4);
-
-    //byte[1]
-    if (pSrc[i + 2] != '=')
-    {
-      input[2] = Decode_GetByte(pSrc[i + 2]);
-      pDest[index++] = ((input[1] & 0x0f) << 4) + (input[2] >> 2);
-    }
-
-    //byte[2]
-    if (pSrc[i + 3] != '=')
-    {
-      input[3] = Decode_GetByte(pSrc[i + 3]);
-      pDest[index++] = ((input[2] & 0x03) << 6) + (input[3]);
-    }
-  }
-
-  //null-terminator
-  pDest[index] = 0;
-  return index;
-}
-
-//===================================
-//    Base64 编码
-//===================================
-char Encode_GetChar(BYTE num)
-{
-  return "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-         "abcdefghijklmnopqrstuvwxyz"
-         "0123456789"
-         "+/="[num];
-}
-
-//编码
-size_t Base64_Encode(char *pDest, const char *pSrc, size_t srclen)
-{
-  BYTE input[3], output[4];
-  size_t i, index_src = 0, index_dest = 0;
-  for (i = 0; i < srclen; i += 3)
-  {
-    //char [0]
-    input[0] = pSrc[index_src++];
-    output[0] = (BYTE)(input[0] >> 2);
-    pDest[index_dest++] = Encode_GetChar(output[0]);
-
-    //char [1]
-    if (index_src < srclen)
-    {
-      input[1] = pSrc[index_src++];
-      output[1] = (BYTE)(((input[0] & 0x03) << 4) + (input[1] >> 4));
-      pDest[index_dest++] = Encode_GetChar(output[1]);
-    }
-    else
-    {
-      output[1] = (BYTE)((input[0] & 0x03) << 4);
-      pDest[index_dest++] = Encode_GetChar(output[1]);
-      pDest[index_dest++] = '=';
-      pDest[index_dest++] = '=';
-      break;
-    }
-
-    //char [2]
-    if (index_src < srclen)
-    {
-      input[2] = pSrc[index_src++];
-      output[2] = (BYTE)(((input[1] & 0x0f) << 2) + (input[2] >> 6));
-      pDest[index_dest++] = Encode_GetChar(output[2]);
-    }
-    else
-    {
-      output[2] = (BYTE)((input[1] & 0x0f) << 2);
-      pDest[index_dest++] = Encode_GetChar(output[2]);
-      pDest[index_dest++] = '=';
-      break;
-    }
-
-    //char [3]
-    output[3] = (BYTE)(input[2] & 0x3f);
-    pDest[index_dest++] = Encode_GetChar(output[3]);
-  }
-  //null-terminator
-  pDest[index_dest] = 0;
-  return index_dest;
-}
 
 pid_t getPidByName(char *name)
 {
@@ -264,7 +288,7 @@ int read_mac()
     printf("file cannot be opened/n");
   }
   fgets(buffstr, 32, fp);
-  //  printf("jiang %02X %02X %02X %02X %02X %02X\n", buffstr[4], buffstr[5], buffstr[6], buffstr[7], buffstr[8], buffstr[9]);
+//  printf("jiang %02X %02X %02X %02X %02X %02X\n", buffstr[4], buffstr[5], buffstr[6], buffstr[7], buffstr[8], buffstr[9]);
 
   device_mac[0] = buffstr[4];
   device_mac[1] = buffstr[5];
@@ -355,7 +379,7 @@ int getCpuUsage()
   {
     sys_usage = sys * 100.0 / total;
     user_usage = user * 100.0 / total;
-    return (int)((sys_usage + user_usage));
+    return (int)((sys_usage+user_usage));
   }
   else
   {
@@ -364,7 +388,7 @@ int getCpuUsage()
     return 10;
   }
   //cpu_rate = (1-idle/total)*100;
-
+ 
   return 0;
 }
 
@@ -387,7 +411,7 @@ int getMemUsage()
   char tmp[1024];
   char str[128];
   char str1[128];
-  int total = 0, memfree = 0;
+  int total=0,memfree=0;
   int index = 0;
   char *t;
 
@@ -396,48 +420,47 @@ int getMemUsage()
   {
     return 10;
   }
-
-  while ((fgets(tmp, 1024, fp)) != NULL)
-  {
-    if (strstr(tmp, "MemTotal:"))
+  
+    while ((fgets(tmp, 1024, fp)) != NULL)
     {
-      index = 0;
-      t = strtok(tmp, " ");
-      while (t != NULL)
-      {
-        index++;
-        if (index == 2)
-        {
-          total = atoi(t);
-          //  printf("%s\n", t);
-        }
-        t = strtok(NULL, " ");
-      }
-    }
-    else if (strstr(tmp, "MemFree:"))
-    {
-      index = 0;
-      t = strtok(tmp, " ");
-      while (t != NULL)
-      {
-        index++;
-        if (index == 2)
-        {
-          //   printf("%s\n", t);
-          memfree = atoi(t);
-        }
-        t = strtok(NULL, " ");
-      }
-    }
-    else
-    {
+       if(strstr(tmp,"MemTotal:"))
+       {
+          index = 0;
+          t = strtok(tmp, " ");  
+            while(t != NULL){  
+              index++;
+                  if(index==2)
+                  {
+                     total = atoi(t);
+                   //  printf("%s\n", t);  
+                  }
+                  t = strtok(NULL, " ");  
+            } 
+         
+       }
+       else if(strstr(tmp,"MemFree:"))
+       {
+                    index = 0;
+          t = strtok(tmp, " ");  
+            while(t != NULL){  
+              index++;
+                  if(index==2)
+                  {
+                  //   printf("%s\n", t);  
+                     memfree = atoi(t);
+                  }
+                  t = strtok(NULL, " ");  
+            } 
+       }
+       else {
 
-      break;
-    }
-  }
-  // printf("jiangyibo mem %d \n",(int)((memfree*100.0)/total));
+         break;
+       }
 
-  return (int)((memfree * 100.0) / total);
+    }
+ // printf("jiangyibo mem %d \n",(int)((memfree*100.0)/total));
+
+  return (int)((memfree*100.0)/total);
 }
 
 int getRunTime()
@@ -452,7 +475,7 @@ int getRunTime()
   {
     return 0;
   }
-  if (fread(tmp, 1, 128, fp) > 0)
+  if ( fread(tmp, 1, 128, fp)>0)
   {
     timeBuf = atoi(tmp);
   }
@@ -460,7 +483,7 @@ int getRunTime()
   {
   }
   pclose(fp);
-  //  printf("jiangyibo getRunTime %d\n", timeBuf);
+//  printf("jiangyibo getRunTime %d\n", timeBuf);
   return timeBuf;
 }
 
@@ -522,8 +545,8 @@ int getDeviceSpeed(int *total, int *used)
   {
     return 0;
   }
-  fscanf(fp, "%lu %lu", total, used);
-  //  printf("jiangyibo getRunTime %d %d\n", *total, *used);
+  fscanf(fp, "%lu %lu", total,used);
+//  printf("jiangyibo getRunTime %d %d\n", *total, *used);
   pclose(fp);
   return 0;
 }
@@ -542,11 +565,12 @@ int getConnectNum(char *conn)
     return 0;
   }
   fscanf(fp, "%lu", &total);
-  //  printf("jiangyibo getConnectNum %d\n", total);
+//  printf("jiangyibo getConnectNum %d\n", total);
   pclose(fp);
   *conn = (char)total;
   return 0;
 }
+
 
 int spilt_string(char *string)
 {
@@ -615,257 +639,34 @@ int get_ower()
   return 0;
 }
 
-float wirelessConfig(struct uci_context *c, WirelessDates *pWireless)
-{
-  char buf[128];
-  struct uci_ptr p;
-  memset(pWireless, 0, sizeof(WirelessDates));
-  sprintf(buf, "wireless.@wifi-iface[0].ssid");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-    //  sprintf(pWireless->wifidata[0].ssid, "");
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pWireless->wifidata[0].ssid, p.o->v.string);
-    }
-    else
-    {
-    }
-  }
-  // printf("jiangyibo wireless get \n");
-  sprintf(buf, "wireless.@wifi-iface[0].key");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pWireless->wifidata[0].password, p.o->v.string);
-    }
-  }
-  sprintf(buf, "wireless.@wifi-iface[0].encryption");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-    pWireless->wifidata[0].encryption = 0;
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      if (!strcmp("psk2+aes", p.o->v.string))
-      {
-        pWireless->wifidata[0].encryption = 2;
-      }
-      else if (!strcmp("psk2", p.o->v.string))
-      {
-        pWireless->wifidata[0].encryption = 1;
-      }
-      else
-      {
-        pWireless->wifidata[0].encryption = 3;
-      }
-    }
-  }
-  sprintf(buf, "wireless.ra0.channel");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-    pWireless->wifidata[0].channel = 13;
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      if (!strcmp(p.o->v.string, "auto"))
-      {
-        pWireless->wifidata[0].channel = 100;
-      }
-      else
-      {
-        //    printf("jiangyibo wireless get 223388 %d \n", p.o);
-        pWireless->wifidata[0].channel = atoi(p.o->v.string);
-      }
-    }
-  }
-  sprintf(buf, "wireless.@wifi-iface[0].portel");
-  if (uci_lookup_ptr(c, &p, buf, true))
-  {
-    //   printf("jiangyibo wireless get 23\n");
-    pWireless->wifidata[0].portel = 0;
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      pWireless->wifidata[0].portel = atoi(p.o->v.string);
-    }
-    else
-    {
-      pWireless->wifidata[0].portel = 0;
-    }
-  }
-  sprintf(buf, "wireless.@wifi-iface[0].disabled");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-    pWireless->wifidata[0].disabled = 0;
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      pWireless->wifidata[0].disabled = atoi(p.o->v.string);
-    }
-    else
-    {
-      pWireless->wifidata[0].disabled = 0;
-    }
-  }
-  // printf("jiangyibo wireless get 3\n");
-}
 
-float networkConfig(struct uci_context *c, NetworkDate *pNet)
-{
-  char buf[128];
-  struct uci_ptr p;
-  memset(pNet, 0, sizeof(NetworkDate));
-
-  sprintf(buf, "network.wan.proto");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-    pNet->mode = 0;
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      if (!strcmp("dhcp", p.o->v.string))
-      {
-        pNet->mode = 1;
-      }
-      else if (!strcmp("pppoe", p.o->v.string))
-      {
-        pNet->mode = 2;
-      }
-      else if (!strcmp("static", p.o->v.string))
-      {
-        pNet->mode = 3;
-      }
-      else if (!strcmp("relay", p.o->v.string))
-      {
-        pNet->mode = 4;
-      }
-      else
-      {
-        pNet->mode = 0;
-      }
-    }
-    else
-    {
-      pNet->mode = 0;
-    }
-  }
-  sprintf(buf, "network.wan.username");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->username, p.o->v.string);
-    }
-  }
-  sprintf(buf, "network.wan.password");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->password, p.o->v.string);
-    }
-  }
-
-  sprintf(buf, "network.wan.ipaddr");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->ipaddr, p.o->v.string);
-    }
-  }
-  sprintf(buf, "network.wan.netmask");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->network, p.o->v.string);
-    }
-  }
-  sprintf(buf, "network.wan.gateway");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->gateway, p.o->v.string);
-    }
-  }
-  sprintf(buf, "network.wan.dns");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->dns1, p.o->v.string);
-    }
-  }
-  sprintf(buf, "network.wan.dns1");
-  if (UCI_OK != uci_lookup_ptr(c, &p, buf, true))
-  {
-  }
-  else
-  {
-    if (p.o != NULL)
-    {
-      sprintf(pNet->dns2, p.o->v.string);
-    }
-  }
-}
 
 int main(int argc, char *argv[])
 {
-  sigInit();
-  read_mac();
+//  read_mac();
+  
 
   int id = 0;
   SendPack sendmsg;
   int index = 0;
   char *p;
+  char key[1024] = {0};
+  char *reportip=NULL;
   RealTimeDate *pReal;
   WirelessDates *pWireless;
   NetworkDate *pNet;
+  sigInit();
 
-  struct uci_context *c;
-  int client_socket_fd = 0;
-  int len = 0;
-  int temp = 1;
-  int inSpeed = 0, outSpeed = 0;
-  int looptimes = 10;
+  
+   readCFG("/etc/report.conf"/*in*/,"reportip", &reportip/*out*/);
+   
+    if(reportip != NULL){
+         printf("reportip %s\n",reportip);
+         printf("reportip ok\n");
+     }else{
+       writeCFG("/etc/report.conf","reportip",SERVER_IP);
+     }
+
 
   pReal = sendmsg.data;
   pWireless = sendmsg.data + sizeof(RealTimeDate);
@@ -875,7 +676,7 @@ int main(int argc, char *argv[])
   sendmsg.id = 222;
   memcpy(sendmsg.devid, device_mac, 6);
   sendmsg.bufsize = 1500;
-  sprintf(pReal->equipment, "TZ");
+  sprintf(pReal->equipment, "SINTAI");
   sprintf(pReal->hardwaretype, "PF308-TZ-H");
   sprintf(pReal->softwaretype, "1.6.12");
 
@@ -888,76 +689,72 @@ int main(int argc, char *argv[])
   struct sockaddr_in server_addr;
   bzero(&server_addr, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
-  if (argc == 1)
+  if (argc == 1&&reportip!=NULL)
   {
-    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+    server_addr.sin_addr.s_addr = inet_addr(reportip);
   }
   else if (argc == 2)
   {
     server_addr.sin_addr.s_addr = inet_addr(argv[1]);
   }
+  else 
+  {
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+  }
   server_addr.sin_port = htons(SERVER_PORT);
   socklen_t server_addr_length = sizeof(server_addr);
-start:
+
   /* 创建socket */
-  client_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+  int client_socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (client_socket_fd < 0)
   {
     perror("Create Socket Failed:");
     exit(1);
   }
 
-  if (connect(client_socket_fd, (struct sockaddr *)&server_addr, server_addr_length) < 0)
-  {
-    perror("connect error:");
-    close(client_socket_fd);
-    sleep(20);
-    goto start;
-  }
-  /*
+   if(reportip != NULL){
+         free(reportip);
+         reportip = NULL;
+     }
+
   struct timeval timeout = {5, 0};
   setsockopt(client_socket_fd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(struct timeval));
   setsockopt(client_socket_fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
-  */
+
   RecvPack pack_info;
 
+  int len = 0;
+  int temp = 1;
+  int inSpeed = 0, outSpeed = 0;
+  int looptimes = 10;
   while (1)
   {
-    //  printf("jiangyibo while\n");
+  //  printf("jiangyibo while\n");
     if (getPidByName("pidof freecwmpd") < 1)
       pReal->tr069state = 4;
     else
       pReal->tr069state = 3;
-    if (looptimes++ >= 10)
-    {
-      looptimes = 0;
-      getPortState(pReal->portstate);
+     if(looptimes++ >= 10 )
+     {
+       looptimes = 0;
       pReal->cpuload = getCpuUsage();
       pReal->memload = getMemUsage();
-      getDeviceSpeed(&pReal->upflow, &pReal->downflow);
+
       pReal->uptime = getRunTime();
       pReal->cputype = 1;
-      getConnectNum(&pReal->connectnum);
-    }
 
-    c = uci_alloc_context();
-    //   printf("jiangyibo wireless 22\n");
-    wirelessConfig(c, pWireless);
-    //   printf("jiangyibo wireless\n");
-    networkConfig(c, pNet);
-    //   printf("jiangyibo net\n");
-    uci_free_context(c);
+     }
+
+
 
     printf("jiangyibo send 111 ok\n");
-
-    memset((char *)&sendmsg, 0, sizeof(SendPack));
-
-    strcpy((char *)&sendmsg, "jiangyibowullllllll");
-
-    send(client_socket_fd, (char *)&sendmsg, sizeof(SendPack), 0);
-
+    if (sendto(client_socket_fd, (char *)&sendmsg, sizeof(SendPack), 0, (struct sockaddr *)&server_addr, server_addr_length) < 0)
+    {
+      printf("Send Failed:\n");
+      // exit(1);
+    }
     /* 从服务器接收数据，并写入文件 */
-    if ((len = read(client_socket_fd, (char *)&pack_info, sizeof(pack_info))) > 0)
+    if ((len = recvfrom(client_socket_fd, (char *)&pack_info, sizeof(pack_info), 0, (struct sockaddr *)&server_addr, &server_addr_length)) > 0)
     {
       p = (char *)&pack_info;
       for (index = 0; index < 14; index++)
@@ -997,26 +794,34 @@ start:
       {
         if (pack_info.data[0] == 3)
         {
-          system("uci set pifii.register.udpport=1&&uci commit pifii");
+          system("");
         }
       }
-      else if (pack_info.id == 8)
+     else if (pack_info.id == 8)
       {
         if (pack_info.data[0] == 3)
         {
           system("/usr/sbin/updateUdpReport.sh &");
         }
       }
+      sleep(10);
     }
     else
     {
-
-      break;
+      sleep(5);
+      //break;
     }
   }
   printf("cucuo \n");
+  /*
+  alarm(30);
+
+  while (1)
+  {	
+    pause();
+  }
+*/
 
   close(client_socket_fd);
-  goto start;
   return 0;
 }
