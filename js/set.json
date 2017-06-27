@@ -1,0 +1,9 @@
+{
+    "name": "set",
+    "version": "1.0.0",
+    "serialnumber": "%s",
+    "keyname": "config",
+    "packet": {
+        "type": "1"
+    }
+}

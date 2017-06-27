@@ -23,7 +23,7 @@
 #include <sys/ipc.h>
 #include "uci.h"
 
-#define SERVER_PORT 9998
+#define SERVER_PORT 8880
 
 #define BUFFER_SIZE 1200
 #define FILE_NAME_MAX_SIZE 512
@@ -31,7 +31,29 @@
 #define MAXBUF 1500
 #define DEV_SIZE 6
 #define APP_VERSION 1
-#define SERVER_IP "222.47.26.202" //tz.pifii.com
+#define SERVER_IP "192.168.3.176" //tz.pifii.com
+
+static char *fc_script = "/usr/sbin/freecwmp";
+static char *fc_script_set_actions = "/tmp/freecwmp_set_action_values.sh";
+#define HOMEPWD "/etc/config/"
+#define JSPWD  "/usr/lib/js/"
+//#define JSPWD "./js/"
+#define ErrorJson "{\"name\": \"errorResponse\",\"version\": \"1.0.0\",\"serialnumber\": \"112233445566\",\"error\": \"1\"}"
+#define FileJson "{\"name\": \"getResponse\",\"version\": \"1.0.0\",\"serialnumber\": \"%s\",\
+				\"keyname\": \"file\",\"packet\": {\"path\": \"/etc/config/\",\"filename\": \"%s\",\"data\": \"%s\"}}"
+#define ConfigJson "{\"name\": \"getResponse\",\"version\": \"1.0.0\",\"serialnumber\": \"%s\",\
+				\"keyname\": \"config\",\"packet\": {\"data\": \"%s\"}}"
+#define CommandJson "{\"name\": \"getResponse\",\"version\": \"1.0.0\",\"serialnumber\": \"%s\",\
+				\"keyname\": \"command\",\"packet\": {\"data\": \"%s\"}}"
+#define SetResponse "{\"name\": \"setResponse\",\"version\": \"1.0.0\",\"serialnumber\": \"%s\",\"keyname\": \"config\",\
+					\"packet\": {\"data\": \"%s\"}}"
+#define FREE(x)   \
+	do            \
+	{             \
+		free(x);  \
+		x = NULL; \
+	} while (0);
+char deviceMac[] = "112233445566";
 
 typedef struct
 {
@@ -124,6 +146,22 @@ pid_t getPidByName(char *name)
   }
   return (pid);
 } /* end of getpidbyname */
+
+void getFileData(char *msg, char *filename)
+{
+	char temp[64];
+	sprintf(temp, "%s%s", JSPWD, filename);
+	FILE *pFile = fopen(temp, "r"); //获取文件的指针
+
+	fseek(pFile, 0, SEEK_END); //把指针移动到文件的结尾 ，获取文件长度
+	int len = ftell(pFile);	//获取文件长度
+
+	rewind(pFile);			   //把指针移动到文件开头 因为我们一开始把指针移动到结尾，如果不移动回来 会出错
+	fread(msg, 1, len, pFile); //读文件
+	msg[len] = 0;			   //把读到的文件最后一位 写为0 要不然系统会一直寻找到0后才结束
+
+	fclose(pFile); // 关闭文件
+}
 
 int read_mac()
 {
@@ -723,6 +761,20 @@ int main(int argc, char *argv[])
 {
   sigInit();
   read_mac();
+  char informRes[1500];
+
+	char infomsg[1500];
+  	int commandkey = 0;
+	int uptime = 0;
+  	char sendData[1500];
+
+  memset(informRes,0,1500);
+  memset(infomsg,0,1500);
+  getFileData(infomsg, "inform.json");
+
+
+  printf("jiangyibo1 %s\n",infomsg);
+	getFileData(informRes, "informResponse.json");
   
 
   int id = 0;
@@ -812,7 +864,14 @@ int main(int argc, char *argv[])
     uci_free_context(c);
 
     printf("jiangyibo send 111 ok\n");
-    if (sendto(client_socket_fd, (char *)&sendmsg, sizeof(SendPack), 0, (struct sockaddr *)&server_addr, server_addr_length) < 0)
+
+    memset(sendData,0,1500);
+ 	  
+    sprintf(sendData, infomsg, deviceMac, commandkey, deviceMac, uptime);
+  
+   printf("jiangyibo %s\n",sendData);
+
+    if (sendto(client_socket_fd, sendData, strlen(sendData), 0, (struct sockaddr *)&server_addr, server_addr_length) < 0)
     {
       printf("Send File Name Failed:");
       // exit(1);

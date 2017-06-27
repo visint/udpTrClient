@@ -1,0 +1,33 @@
+{
+    "name": "getResponse",
+    "version": "1.0.0",
+    "serialnumber": "%s",
+    "keyname": "%s",
+    "packet": {
+        "serialnumber": "%s",
+        "manufacturer": "PIFII",
+        "model": "PF-308",
+        "firmware": "v1.1.0-20170612",
+        "cpu": "20%",
+        "memory": "39772 / 61184",
+        "flash": "7300 / 16384",
+        "uptime": "%d",
+        "wificlient": [
+            { "mac": "60:6D:C7:35:C5:A7", "type": "0", "host": "", "ip": "" },
+            { "mac": "2C:D0:5A:EC:AA:C6", "type": "0", "host": "", "ip": "" },
+            { "mac": "74:51:BA:E1:E3:26", "type": "0", "host": "", "ip": "" }
+        ],
+        "portstate": {
+            "port5": 1,
+            "port4": 0,
+            "port2": 0,
+            "port3": 0,
+            "port7": 1,
+            "port1": 0
+        },
+        "clientspeed": "1561071965 1175873324",
+        "dev_type": "1",
+        "ip": "10.0.68.30",
+        "work_mode": "AP"
+    }
+}
